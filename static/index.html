@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DocuMind AI — Document Intelligence</title>
+<style>
+:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;color:#e8edf5;background:#0b1020}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% 0%,#182442 0,#0b1020 42%);min-height:100vh}
+.wrap{max-width:1050px;margin:auto;padding:34px 20px}.top{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:28px}
+.brand{font-size:23px;font-weight:750;letter-spacing:-.6px}.brand span{color:#8ba7ff}.pill{font-size:12px;color:#9de4c1;border:1px solid #285b4c;border-radius:99px;padding:7px 11px}
+h1{font-size:clamp(30px,5vw,48px);letter-spacing:-1.8px;margin:8px 0}.sub{color:#9aa8bf;margin:0 0 28px;line-height:1.6}
+.grid{display:grid;grid-template-columns:330px 1fr;gap:18px}.panel{background:#111a2d;border:1px solid #26334d;border-radius:18px;padding:20px;box-shadow:0 18px 50px #0003}
+h2{font-size:16px;margin:0 0 14px}.hint{font-size:13px;color:#93a2bb;line-height:1.5}
+.drop{border:1px dashed #53688d;border-radius:13px;padding:22px 14px;text-align:center;margin:14px 0}
+button{border:0;border-radius:10px;background:#7895ff;color:#081126;padding:11px 15px;font-weight:700;cursor:pointer}
+button:disabled{opacity:.5;cursor:wait}.secondary{background:#202d47;color:#dce6fa}
+input[type=file]{max-width:100%;font-size:12px;color:#aab7cc}.status{font-size:13px;color:#a9bad5;margin-top:12px;white-space:pre-wrap}
+.chatbox{height:420px;overflow:auto;background:#0c1425;border:1px solid #24334e;border-radius:13px;padding:14px;margin-bottom:13px}
+.msg{padding:12px 14px;border-radius:12px;margin:9px 0;line-height:1.55;white-space:pre-wrap;font-size:14px}
+.user{background:#26385d;margin-left:12%}.assistant{background:#17243a;margin-right:8%}
+.sources{font-size:12px;color:#9eb2d1;margin:8px 0 12px 8px}.source{border-left:2px solid #7895ff;padding:5px 9px;margin:5px 0}
+.ask{display:flex;gap:9px}.ask input{flex:1;min-width:0;background:#0c1425;border:1px solid #34445f;border-radius:10px;padding:12px;color:#fff}
+small{color:#8192ad}.foot{margin-top:18px;color:#7586a2;font-size:12px}
+@media(max-width:760px){.grid{grid-template-columns:1fr}.chatbox{height:380px}.top{align-items:flex-start}}
+</style></head>
+<body><main class="wrap">
+<div class="top"><div class="brand">◈ Docu<span>Mind</span> AI</div><div class="pill" id="health">Checking API…</div></div>
+<h1>Your documents, <span style="color:#91aaff">understood.</span></h1>
+<p class="sub">Upload PDFs or Word documents, ask questions in natural language, and inspect the retrieved sources behind each answer.</p>
+<div class="grid">
+<section class="panel">
+<h2>1. Add knowledge</h2><p class="hint">Upload a text-based PDF or DOCX file (max 20 MB). Scanned PDFs need OCR and are not supported in this MVP.</p>
+<div class="drop"><div style="font-size:27px">⇧</div><p class="hint">Choose a document to index</p><input id="file" type="file" accept=".pdf,.docx"></div>
+<button id="upload">Upload & index</button><div class="status" id="uploadStatus"></div>
+<div class="foot">Powered by OpenAI embeddings, Pinecone vector search and GPT-4.1.</div>
+</section>
+<section class="panel">
+<h2>2. Ask your documents</h2><div class="chatbox" id="chat"><div class="msg assistant">Hi! Upload a document, then ask me a question about its contents. I'll answer using retrieved context and show the sources.</div></div>
+<form class="ask" id="ask"><input id="question" placeholder="Ask something about your documents…" required minlength="2"><button id="send">Ask</button></form>
+<div class="foot">Answers are grounded in retrieved passages. Always verify important information against the original document.</div>
+</section></div></main>
+<script>
+const $=id=>document.getElementById(id), chat=$('chat');
+
+const sessionId = localStorage.getItem('documind_session')
+    || crypto.randomUUID();
+
+localStorage.setItem('documind_session', sessionId);
+function addMsg(text,who){const el=document.createElement('div');el.className='msg '+who;el.textContent=text;chat.appendChild(el);chat.scrollTop=chat.scrollHeight;return el}
+async function check(){try{const r=await fetch('/api/health'),d=await r.json();$('health').textContent=d.openai_configured&&d.pinecone_configured?'API ready · keys configured':'API running · add keys to .env';}catch{$('health').textContent='API unavailable'}}
+$('upload').onclick=async()=>{const f=$('file').files[0];if(!f){$('uploadStatus').textContent='Choose a PDF or DOCX file first.';return}
+const b=$('upload');b.disabled=true;$('uploadStatus').textContent='Extracting text, creating embeddings and indexing…';
+try{const fd=new FormData();fd.append('file',f);const r=await fetch('/api/documents',{method:'POST',body:fd});const d=await r.json();if(!r.ok)throw Error(d.detail||'Upload failed');$('uploadStatus').textContent=`Indexed ${d.filename}\\n${d.chunks} chunks · ID ${d.document_id}`;addMsg(`Document indexed: ${d.filename} (${d.chunks} chunks). Ask away!`,'assistant')}
+catch(e){$('uploadStatus').textContent='Error: '+e.message}finally{b.disabled=false}};
+$('ask').onsubmit=async e=>{e.preventDefault();const q=$('question').value.trim();if(!q)return;$('question').value='';addMsg(q,'user');const b=$('send');b.disabled=true;const loading=addMsg('Searching documents and generating an answer…','assistant');
+try{const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    question:q,
+    session_id:sessionId
+})});const d=await r.json();if(!r.ok)throw Error(d.detail||'Request failed');loading.textContent=d.answer; if(d.sources?.length){const s=document.createElement('div');s.className='sources';s.textContent='Retrieved sources';d.sources.forEach((x,i)=>{const p=document.createElement('div');p.className='source';p.textContent=`[Source ${i+1}] ${x.document} · page/section ${x.page} · similarity ${x.score}\\n${x.preview}`;s.appendChild(p)});chat.appendChild(s)}}
+catch(e){loading.textContent='Error: '+e.message}finally{b.disabled=false;chat.scrollTop=chat.scrollHeight}};
+check();
+</script></body></html>
